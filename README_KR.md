@@ -37,9 +37,9 @@
 `(※ 2020/05/05) : 지금 이 글을 작성하는 현재 시각으로썬 대학교에서 중간고사를 시행하기에 즉각적인 대답을 하지 못할 수 있으니, 양해 부탁드립니다 OTL`
 
 # 빠른 링크
-* [Link to the shader `shd_gen_lut_from_texture`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx\shaders\shd_gen_lut_from_texture.shader)
-* [Link to the shader `shd_gen_lut_from_array`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx\shaders\shd_gen_lut_from_array.shader)
-* [Link to the shader `shd_dither_from_lut`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx\shaders\shd_dither_from_lut.shader)
+* [Link to the shader `shd_gen_lut_from_texture`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx/shaders/shd_gen_lut_from_texture.shader)
+* [Link to the shader `shd_gen_lut_from_array`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx/shaders/shd_gen_lut_from_array.shader)
+* [Link to the shader `shd_dither_from_lut`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx/shaders/shd_dither_from_lut.shader)
 
 # 참고한 자료들과 에셋들
 ## 관련 문서

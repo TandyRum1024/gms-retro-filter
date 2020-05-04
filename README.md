@@ -33,9 +33,9 @@ Refer to the example project in `colourquantizationshaderthatwillmakeyoureyesble
 If you have any problems or questions regarding the project, Feel free to let me know.</br>You can contact me via my Discord DMs (`zik#6629`) or my twitter's DM (`@ZIKBAKGURI`)
 
 # Quick links
-* [Link to the shader `shd_gen_lut_from_texture`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx\shaders\shd_gen_lut_from_texture.shader)
-* [Link to the shader `shd_gen_lut_from_array`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx\shaders\shd_gen_lut_from_array.shader)
-* [Link to the shader `shd_dither_from_lut`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx\shaders\shd_dither_from_lut.shader)
+* [Link to the shader `shd_gen_lut_from_texture`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx/shaders/shd_gen_lut_from_texture.shader)
+* [Link to the shader `shd_gen_lut_from_array`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx/shaders/shd_gen_lut_from_array.shader)
+* [Link to the shader `shd_dither_from_lut`'s source](colourquantizationshaderthatwillmakeyoureyesbleed.gmx/shaders/shd_dither_from_lut.shader)
 
 # Sources & Materials
 ## Related readings

@@ -1,0 +1,292 @@
+// 2020-05-05 02:22:53
+#define zlut_init
+/// zlut_init()
+/*
+    Defines necessary shader-related variables for zLUT
+*/
+
+// LUT generation shaders
+// (shader that generates LUT from palette array)
+uArrayLUTPalette = shader_get_uniform(shd_gen_lut_from_array, "uPalette");
+uArrayLUTSecondColour = shader_get_uniform(shd_gen_lut_from_array, "uSecondClosestBlendFactor");
+uArrayLUTSZ = shader_get_uniform(shd_gen_lut_from_array, "uLUTSize");
+uArrayLUTCellNum = shader_get_uniform(shd_gen_lut_from_array, "uLUTCellNum");
+// (shader that generates LUT from palette texture)
+uLUTPalette = shader_get_sampler_index(shd_gen_lut_from_texture, "uPalette");
+uLUTPalettePixelSZ = shader_get_uniform(shd_gen_lut_from_texture, "uPalettePixelSize");
+uLUTSecondColour = shader_get_uniform(shd_gen_lut_from_texture, "uSecondClosestBlendFactor");
+uLUTSZ = shader_get_uniform(shd_gen_lut_from_texture, "uLUTSize");
+uLUTCellNum = shader_get_uniform(shd_gen_lut_from_texture, "uLUTCellNum");
+// (shader that generates LUT from 256x1 palette texture : unused & broken)
+uLUT256Palette = shader_get_sampler_index(shd_gen_lut_from_texture_256, "uPalette");
+uLUT256PalettePixelSZ = shader_get_uniform(shd_gen_lut_from_texture_256, "uPalettePixelSize");
+uLUT256SecondColour = shader_get_uniform(shd_gen_lut_from_texture_256, "uSecondClosestBlendFactor");
+uLUT256SZ = shader_get_uniform(shd_gen_lut_from_texture_256, "uLUTSize");
+uLUT256CellNum = shader_get_uniform(shd_gen_lut_from_texture_256, "uLUTCellNum");
+// (colour quantization & dithering shader)
+uDitherScreenPixelSz = shader_get_uniform(shd_dither_from_lut, "uScreenPixelSize");
+uDitherThresholdPixelSz = shader_get_uniform(shd_dither_from_lut, "uThresholdPixelSize");
+uDitherLUTSz = shader_get_uniform(shd_dither_from_lut, "uLUTSize");
+uDitherLUTCellNum = shader_get_uniform(shd_dither_from_lut, "uLUTCellNum");
+uDitherThresholdTex = shader_get_sampler_index(shd_dither_from_lut, "uThresholdTex");
+uDitherLUT1Tex = shader_get_sampler_index(shd_dither_from_lut, "uLUT1");
+uDitherLUT2Tex = shader_get_sampler_index(shd_dither_from_lut, "uLUT2");
+
+#define zlut_build_from_texture
+/// zlut_build_from_texture(_texpalette, _lutresolution, _lutcells)
+/*
+    Builds LUT from provided palette texture and returns array containing the LUT data.
+    The returned array contains following data :
+    > [sprite containing LUT #1, LUT #1's texture pointer, sprite containing LUT #2, LUT #2's texture pointer]
+    (LUT #1 contains LUT data of 1st closest colour on the palette, and LUT #2 contains LUT data of 2nd closest colour used for dithering)
+    
+    The palette texture passed in should have dimensions of [16 x 1] optimally,
+    But if your palette has width smaller than 16px then it's still OK to use this without any modification.
+    On the other hand, If you need to use more than 16 colours in your palette...
+    You can always modify the LUT-generating shaders's #define PALETTESIZE constant to something greater than 16.
+    (but note that there's a hard limit on the size of palette since there's a maximum limits on loops allowed that varies on your GPU's specs.)
+    ================================================================
+    _texpalette : texture pointer of the palette texture
+    _lutresolution : resolution of LUT texture
+    _lutcells : number of "cells" in LUT texture. This defines the precision & quality of resulting colour from LUT
+*/
+#args _texpalette, _lutresolution, _lutcells
+// show_debug_message("LUT update from palette texture requested");
+
+// Fetch palette texture single texel size
+var _palettew = texture_get_texel_width(_texpalette);
+var _paletteh = texture_get_texel_height(_texpalette);
+
+// Create new temp. surface for holding the LUT data before we make it into a sprite.
+var _tmpsurf = surface_create(_lutresolution, _lutresolution);
+
+
+// 1] 1st. Closest colour
+// Write LUT into temp. surface
+// (set surface context)
+surface_set_target(_tmpsurf);
+draw_clear($FF00FF); // for testing purpose; fill the empty space to magenta to see if there's any seams in the LUT
+
+// Northing special, Just draw a quad with UV, starting from top left (0,0) to bottom right (1, 1)
+// We're gonna let the shader do all the fancy LUT-generating stuffs.
+// (set shader context)
+shader_set(shd_gen_lut_from_texture);
+shader_set_uniform_f(uLUTPalettePixelSZ, _palettew, _paletteh); // set uniform : palette texture's single texel size
+shader_set_uniform_f(uLUTSecondColour, 0);                      // set uniform : calculate 2nd. closest colour?
+shader_set_uniform_f(uLUTSZ, _lutresolution, _lutresolution);   // set uniform : resolution of LUT texture
+shader_set_uniform_f(uLUTCellNum, _lutcells);                   // set uniform : cell number of LUT texture
+texture_set_stage(uLUTPalette, _texpalette);                    // pass texture : palette texture
+
+// (draw primitive quad w/ uv-coordinates to let shader use it's uv for generating LUT texture)
+draw_primitive_begin(pr_trianglestrip);
+draw_vertex_texture(0, 0, 0, 0);
+draw_vertex_texture(_lutresolution, 0, 1, 0);
+draw_vertex_texture(0, _lutresolution, 0, 1);
+draw_vertex_texture(_lutresolution, _lutresolution, 1, 1);
+draw_primitive_end();
+
+// (reset shader context)
+shader_reset();
+
+// (reset surface context)
+surface_reset_target();
+
+// Create sprite from temp. surface to prevent GPU from
+// "accidentally" obliterating the LUT texture when the window is minimized
+var _sprlut1 = sprite_create_from_surface(_tmpsurf, 0, 0, _lutresolution, _lutresolution, false, false, 0, 0);
+
+// Also fetch texture pointer from the sprite for later use
+var _texlut1 = sprite_get_texture(_sprlut1, 0);
+
+
+// 2] 2nd. Closest colour
+// Write LUT into temp. surface
+// (set surface context)
+surface_set_target(_tmpsurf);
+draw_clear($FF00FF); // for testing purpose; fill the empty space to magenta to see if there's any seams in the LUT
+
+// Northing special, Just draw a quad with UV, starting from top left (0,0) to bottom right (1, 1)
+// We're gonna let the shader do all the fancy LUT-generating stuffs.
+// (set shader context)
+shader_set(shd_gen_lut_from_texture);
+shader_set_uniform_f(uLUTPalettePixelSZ, _palettew, _paletteh); // set uniform : palette texture's single texel size
+shader_set_uniform_f(uLUTSecondColour, 1);                      // set uniform : calculate 2nd. closest colour?
+shader_set_uniform_f(uLUTSZ, _lutresolution, _lutresolution);   // set uniform : resolution of LUT texture
+shader_set_uniform_f(uLUTCellNum, _lutcells);                    // set uniform : cell number of LUT texture
+texture_set_stage(uLUTPalette, _texpalette);                    // pass texture : palette texture
+
+// (draw primitive quad w/ uv-coordinates to let shader use it's uv for generating LUT texture)
+draw_primitive_begin(pr_trianglestrip);
+draw_vertex_texture(0, 0, 0, 0);
+draw_vertex_texture(_lutresolution, 0, 1, 0);
+draw_vertex_texture(0, _lutresolution, 0, 1);
+draw_vertex_texture(_lutresolution, _lutresolution, 1, 1);
+draw_primitive_end();
+
+// (reset shader context)
+shader_reset();
+
+// (reset surface context)
+surface_reset_target();
+
+// Create sprite from temp. surface to prevent GPU from
+// "accidentally" obliterating the LUT texture when the window is minimized
+var _sprlut2 = sprite_create_from_surface(_tmpsurf, 0, 0, _lutresolution, _lutresolution, false, false, 0, 0);
+
+// (also fetch texture pointer from the sprite for later use)
+var _texlut2 = sprite_get_texture(_sprlut2, 0);
+
+
+// Delete temp. surface & emit debug text
+surface_free(_tmpsurf);
+// show_debug_message("LUT updated from texture, Resolution : (" + _lutresolution + ", " + _lutresolution + ")");
+
+// Build array containing sprite & textures and return it
+var _arr = -1;
+_arr[0] = _sprlut1;
+_arr[1] = _texlut1;
+_arr[2] = _sprlut2;
+_arr[3] = _texlut2;
+return _arr;
+
+#define zlut_build_from_array
+/// zlut_build_from_array(_palettearray, _lutresolution, _lutcells)
+/*
+    Builds LUT from provided array containing palette's colours and returns array containing the LUT data.
+    The returned array contains following data :
+    > [sprite containing LUT #1, LUT #1's texture pointer, sprite containing LUT #2, LUT #2's texture pointer]
+    (LUT #1 contains LUT data of 1st closest colour on the palette, and LUT #2 contains LUT data of 2nd closest colour used for dithering)
+    
+    The palette array passed in should contain 16 colours optimally.
+    On the other hand, If you need to use more than 16 colours in your palette...
+    You can always modify the LUT-generating shaders's #define PALETTESIZE constant to something greater than 16.
+    (but note that there's a hard limit on the size of palette since there's a maximum limits on loops allowed that varies on your GPU's specs.)
+    ================================================================
+    _palettearray : array containing the colour of palette
+    _lutresolution : resolution of LUT texture
+    _lutcells : number of "cells" in LUT texture. This defines the precision & quality of resulting colour from LUT
+*/
+#args _palettearray, _lutresolution, _lutcells
+
+// show_debug_message("LUT update from palette array requested");
+
+// Create new temp. surface for holding the LUT data before we make it into a sprite.
+var _tmpsurf = surface_create(_lutresolution, _lutresolution);
+
+// 1] 1st. Closest colour
+// Write LUT into temp. surface
+// (set surface context)
+surface_set_target(_tmpsurf);
+draw_clear($FF00FF); // for testing purpose; fill the blank to magenta to see if there's any seams in the LUT
+
+// Northing special, Just draw a quad with UV, starting from top left (0,0) to bottom right (1, 1)
+// We're gonna let the shader do all the fancy LUT-generating stuffs.
+// (set shader context)
+shader_set(shd_gen_lut_from_array);
+
+shader_set_uniform_f_array(uArrayLUTPalette, _palettearray);        // set uniform : array of palette colours
+shader_set_uniform_f(uArrayLUTSecondColour, 0);                     // set uniform : calculate 2nd. closest colour?
+shader_set_uniform_f(uArrayLUTSZ, _lutresolution, _lutresolution);  // set uniform : resolution of LUT texture
+shader_set_uniform_f(uArrayLUTCellNum, _lutcells);                  // set uniform : cell number of LUT texture
+
+// (draw primitive quad w/ uv-coordinates to let shader use it's uv for generating LUT texture)
+draw_primitive_begin(pr_trianglestrip);
+draw_vertex_texture(0, 0, 0, 0);
+draw_vertex_texture(_lutresolution, 0, 1, 0);
+draw_vertex_texture(0, _lutresolution, 0, 1);
+draw_vertex_texture(_lutresolution, _lutresolution, 1, 1);
+draw_primitive_end();
+
+// (reset shader context)
+shader_reset();
+
+// (reset surface context)
+surface_reset_target();
+
+// Create sprite from temp. surface to prevent GPU from
+// "accidentally" obliterating the LUT texture when the window is minimized
+var _sprlut1 = sprite_create_from_surface(_tmpsurf, 0, 0, _lutresolution, _lutresolution, false, false, 0, 0);
+
+// (also fetch texture pointer from the sprite for later use)
+var _texlut1 = sprite_get_texture(_sprlut1, 0);
+
+
+// 2] 2nd. Closest colour
+// Write LUT into temp. surface
+// (set surface context)
+surface_set_target(_tmpsurf);
+draw_clear($FF00FF); // for testing purpose; fill the blank to magenta to see if there's any seams in the LUT
+
+// Northing special, Just draw a quad with UV, starting from top left (0,0) to bottom right (1, 1)
+// We're gonna let the shader do all the fancy LUT-generating stuffs.
+// (set shader context)
+shader_set(shd_gen_lut_from_array);
+
+shader_set_uniform_f_array(uArrayLUTPalette, _palettearray);        // set uniform : array of palette colours
+shader_set_uniform_f(uArrayLUTSecondColour, 1);                     // set uniform : calculate 2nd. closest colour?
+shader_set_uniform_f(uArrayLUTSZ, _lutresolution, _lutresolution);  // set uniform : resolution of LUT texture
+shader_set_uniform_f(uArrayLUTCellNum, _lutcells);                  // set uniform : cell number of LUT texture
+
+// (draw primitive quad w/ uv-coordinates to let shader use it's uv for generating LUT texture)
+draw_primitive_begin(pr_trianglestrip);
+draw_vertex_texture(0, 0, 0, 0);
+draw_vertex_texture(_lutresolution, 0, 1, 0);
+draw_vertex_texture(0, _lutresolution, 0, 1);
+draw_vertex_texture(_lutresolution, _lutresolution, 1, 1);
+draw_primitive_end();
+
+// (reset shader context)
+shader_reset();
+
+// (reset surface context)
+surface_reset_target();
+
+// Create sprite from temp. surface to prevent GPU from
+// "accidentally" obliterating the LUT texture when the window is minimized
+var _sprlut2 = sprite_create_from_surface(_tmpsurf, 0, 0, _lutresolution, _lutresolution, false, false, 0, 0);
+
+// (also fetch texture pointer from the sprite for later use)
+var _texlut2 = sprite_get_texture(_sprlut2, 0);
+
+
+// Delete temp. surface & emit debug text
+surface_free(_tmpsurf);
+// show_debug_message("LUT updated from palette array, Resolution : (" + _lutresolution + ", " + _lutresolution + ")");
+
+// Build array containing sprite & textures and return it
+var _arr = -1;
+_arr[0] = _sprlut1;
+_arr[1] = _texlut1;
+_arr[2] = _sprlut2;
+_arr[3] = _texlut2;
+return _arr;
+
+#define zlut_set_dithering_shader
+/// zlut_set_dithering_shader(_screenwidth, _screenheight, _lutresolution, _lutcellsnum, _texthreshold, _texlut1, _texlut2)
+/*
+    Sets shader to dithering shader and sets up the necessary uniforms.
+    Don't forget to use shader_reset() after using this function!
+    =========================================
+    _screenwidth, _screenheight : width and height of screen
+    _lutresolution : resolution (width & height) of LUT texture
+    _lutcellsnum : number of "cells" in LUT texture
+    _texthreshold : threshold matrix texture
+    _texlut1 : LUT #1 texture that contains LUT data of 1st. closest colour from palette
+    _texlut2 : LUT #2 texture that contains LUT data of 2nd. closest colour from palette
+*/
+#args _screenwidth, _screenheight, _lutresolution, _lutcellsnum, _texthreshold, _texlut1, _texlut2
+
+// Set shader context
+shader_set(shd_dither_from_lut);
+
+// Fetch texel dimensions
+var _thresholdtexelw = texture_get_texel_width(_texthreshold);
+var _thresholdtexelh = texture_get_texel_height(_texthreshold);
+
+shader_set_uniform_f(uDitherScreenPixelSz, 1 / _screenwidth, 1 / _screenheight);    // set uniform : size of screen's texel / single pixel
+shader_set_uniform_f(uDitherThresholdPixelSz, _thresholdtexelw, _thresholdtexelh);  // set uniform : size of threshold texture's texel
+shader_set_uniform_f(uDitherLUTSz, _lutresolution, _lutresolution);                 // set uniform : size of LUT texture
+shader_set_uniform_f(uDitherLUTCellNum, _lutcellsnum);                              // set uniform : number of cells in LUT texture
+texture_set_stage(uDitherThresholdTex, _texthreshold);                              // pass texture : threshold texture (bayer matrix)
+texture_set_stage(uDitherLUT1Tex, _texlut1);                                        // pass texture : LUT texture #1 (closest colour)
+texture_set_stage(uDitherLUT2Tex, _texlut2);                                        // pass texture : LUT texture #2 (2nd. closest colour)

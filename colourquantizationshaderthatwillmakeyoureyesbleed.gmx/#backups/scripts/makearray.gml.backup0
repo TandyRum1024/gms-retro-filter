@@ -1,0 +1,7 @@
+// 2020-05-02 03:57:14
+var _arr = -1;
+for (var i=0; i<argument_count; i++)
+{
+    _arr[i] = argument[i];
+}
+return _arr;

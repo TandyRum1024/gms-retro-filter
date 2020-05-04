@@ -1,0 +1,80 @@
+// 2020-05-04 23:22:01
+#event create 3D wacky demo stuff
+cameraX = 0;
+cameraY = -40;
+cameraZ = -80;
+cameraXto = 0;
+cameraYto = -20;
+cameraZto = 0;
+
+cameraFov = 90;
+
+#section Objects
+
+// scroller surface (used for background)
+surfScrollerWid = 1024;
+surfScrollerHei = 512;
+surfScroller = surface_create(surfScrollerWid, surfScrollerHei);
+texScroller = surface_get_texture(surfScroller);
+scrollerStr = "마참내. 햄버거 2.0.";
+scrollerStrScale = 5.0;
+
+// bg
+sceneBGSize = 1024;
+sceneBGTex = sprite_get_texture(texChecker, 1);
+
+// plate
+scenePlateX = 0;
+scenePlateY = 0;
+scenePlateZ = 0;
+scenePlateSize = 64;
+scenePlateHeight = 4;
+scenePlateTex = sprite_get_texture(texChecker, 0);
+
+// guy / cat
+sceneGuyBaseX = 0;
+sceneGuyBaseY = 0;
+sceneGuyBaseZ = 0;
+sceneGuyWidth = 32;
+sceneGuyHeight = 64;
+sceneGuyTex = sprite_get_texture(texCharacter, 0);
+sceneGuyTexShadow = sprite_get_texture(texCharacter, 1);
+
+#event step Keep scroller text surface alive
+if (!surface_exists(surfScroller))
+{
+    surfScroller = surface_create(surfScrollerWid, surfScrollerHei);
+    texScroller = surface_get_texture(surfScroller);
+}
+
+#event draw Draw to source surface
+/*
+    WARNING : UNOPTIMIZED PILE OF MISERABLE CODE AHEAD -- Prepare your brain
+*/
+if (global.screenState == SCREEN.MAIN)
+{
+    // Update demoscene-ass looking scroller surface
+    scene_update_scroller();
+    
+    // Draw scene
+    draw_clear(c_black);
+    scene_demo();
+    
+    // Visualize scroller surface
+    // draw_surface_stretched(surfScroller, 0, 0, oKORN.winWid, oKORN.winHei);
+}
+
+#event draw_gui Draw debug values
+/*
+if (global.screenState == SCREEN.MAIN)
+{
+    var _colour1 = $00DDFF;
+    var _colour2 = $00AADD;
+    var _debugstr = "CAMPOS : [" + string(cameraX) + ", " + string(cameraY) + ", " + string(cameraZ) + "]#";
+    _debugstr += "CAMTO : [" + string(cameraXto) + ", " + string(cameraYto) + ", " + string(cameraZto) + "]#";
+    
+    draw_set_halign(2); draw_set_valign(0);
+    draw_text_color(oKORN.winWid - 10, 11, _debugstr, 0, 0, 0, 0, 1.0);
+    draw_text_color(oKORN.winWid - 10, 10, _debugstr, _colour1, _colour1, _colour2, _colour2, 1.0);
+}
+*/

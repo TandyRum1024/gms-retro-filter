@@ -1,0 +1,472 @@
+// 2020-05-05 05:26:17
+#event create Yes. This is the object that controls it all... hella important
+/*
+    Colour quantization & dithering effect demo
+    MMXX ZIK
+*/
+
+// Window & Screen dimensions
+winWid = window_get_width();
+winHei = window_get_height();
+
+// (calculate downscaled screen size from window's size)
+var _downscalefactor = 2;
+var _squeezefactor = 0.5; // scale / ratio of horizontal pixel size in relation of vertical pixel size.
+screenWid = (winWid >> _downscalefactor) * _squeezefactor;
+screenHei = winHei >> _downscalefactor;
+
+// Source surface
+surfSource = surface_create(winWid, winHei);
+
+// Downscaled surface for holding "pixelized" source surface.
+// This will be fed into the dithering shader (shd_dither_from_lut) to produce "retro" effect.
+surfScreen = surface_create(screenWid, screenHei);
+
+// Threshold texture (bayer matrix)
+texThreshold = sprite_get_texture(sprBayer16, 0);
+texThresholdPixelW = texture_get_texel_width(texThreshold);
+texThresholdPixelH = texture_get_texel_height(texThreshold);
+
+// Palette texture
+currentPaletteSpr = palC64;
+currentPaletteSprLoaded = false; // Whether or not user has loaded external sprites
+texPalette = sprite_get_texture(currentPaletteSpr, 0);
+
+// Build the palette -- used in User event #0
+// C64 palette from : https://lospec.com/palette-list/commodore64
+paletteC64 = buildpalette(
+    $000000, $626262, $898989, $adadad,
+    $ffffff, $9f4e44, $cb7e75, $6d5412,
+    $a1683c, $c9d487, $9ae29b, $5cab5e,
+    $6abfc6, $887ecb, $50459b, $a057a3);
+
+// (current palette used for generating LUT)
+palCurrent = paletteC64;
+
+// Initialize LUT system
+LUTRes      = 512;  // Resolution of LUT
+LUTCells    = 4;    // Number of cells in LUT texture (this determines the quality & precision of resulting colour)
+sprLUT1 = -1;
+texLUT1 = -1;
+sprLUT2 = -1;
+texLUT2 = -1;
+zlut_init();
+
+// Disable texture interpolation (since we're aiming for "pixelated" look)
+texture_set_interpolation(false);
+
+// Set font
+draw_set_font(fntMain);
+
+// Request LUT update
+event_user(1);
+
+#section Interaction & Screens
+// Interaction
+screenMouseX = 0.5;
+screenMouseY = 0;
+screenMouseDown = false;
+
+// Screens
+enum SCREEN
+{
+    MAIN = 0,
+    PARROTTEST,
+    BWTEST,
+    BISQWITTEST,
+    LUT,
+    END
+}
+global.screenState = 0;
+
+#event step Interaction
+screenMouseDown = mouse_check_button(mb_left);
+if (screenMouseDown)
+{
+    screenMouseX = clamp(window_mouse_get_x() / winWid, 0, 1);
+    screenMouseY = clamp(window_mouse_get_y() / winHei, 0, 1);
+}
+
+// Open & Build palette from image
+if (keyboard_check(vk_control) && keyboard_check_pressed(ord("O")))
+{
+    event_user(3);
+}
+
+// Save current LUT
+if (keyboard_check(vk_control) && keyboard_check_pressed(ord("S")))
+{
+    event_user(15);
+}
+
+// Change scene by pressing numerical keys
+for (var i=1; i<=SCREEN.END; i++)
+{
+    if (keyboard_check_pressed(ord(string(i))))
+    {
+        global.screenState = i - 1;
+    }
+}
+
+#event step_begin Keep all surfaces alive
+if (!surface_exists(surfScreen))
+{
+    surfScreen = surface_create(screenWid, screenHei);
+    show_debug_message("Screen surface re-generated : (" + string(screenWid) + ", " + string(screenHei) + ")");
+}
+
+if (!surface_exists(surfSource))
+{
+    surfSource = surface_create(winWid, winHei);
+    show_debug_message("Source surface re-generated : (" + string(winWid) + ", " + string(winHei) + ")");
+}
+
+#event other_game_end Destroy all surfaces & sprites
+// Destroy surfaces
+if (surface_exists(surfScreen))
+{
+    surface_free(surfScreen);
+}
+if (surface_exists(surfSource))
+{
+    surface_free(surfSource);
+}
+
+// Destroy LUT sprites
+if (sprite_exists(sprLUT1))
+{
+    sprite_delete(sprLUT1);
+}
+if (sprite_exists(sprLUT2))
+{
+    sprite_delete(sprLUT2);
+}
+
+// Destroy loaded palette sprite
+if (currentPaletteSprLoaded && sprite_exists(currentPaletteSpr))
+{
+    sprite_delete(currentPaletteSpr);
+}
+
+#event other_user0 Update the LUT from palette array
+show_debug_message("LUT update from palette array requested");
+// Build the LUTs
+var _lutdata = zlut_build_from_array(palCurrent, LUTRes, LUTCells);
+
+// Overwrite LUT sprites if the LUT sprites already exists
+if (sprite_exists(sprLUT1))
+{
+    sprite_delete(sprLUT1);
+}
+if (sprite_exists(sprLUT2))
+{
+    sprite_delete(sprLUT2);
+}
+sprLUT1 = _lutdata[@ 0];
+texLUT1 = _lutdata[@ 1];
+sprLUT2 = _lutdata[@ 2];
+texLUT2 = _lutdata[@ 3];
+
+show_debug_message("LUT updated from palette array, Resolution : (" + string(LUTRes) + ", " + string(LUTRes) + ")");
+
+#event other_user1 Update the LUT from palette texture
+show_debug_message("LUT update from palette texture requested");
+
+// Get palette texture & build the LUTs
+texPalette = sprite_get_texture(currentPaletteSpr, 0);
+var _lutdata = zlut_build_from_texture(texPalette, LUTRes, LUTCells);
+
+// Overwrite LUT sprites if the LUT sprites already exists
+if (sprite_exists(sprLUT1))
+{
+    sprite_delete(sprLUT1);
+}
+if (sprite_exists(sprLUT2))
+{
+    sprite_delete(sprLUT2);
+}
+sprLUT1 = _lutdata[@ 0];
+texLUT1 = _lutdata[@ 1];
+sprLUT2 = _lutdata[@ 2];
+texLUT2 = _lutdata[@ 3];
+
+show_debug_message("LUT updated from texture, Resolution : (" + string(LUTRes) + ", " + string(LUTRes) + ")");
+
+#event other_user2 (unused) Update the LUT from 256x1 palette texture
+/*
+    This event is unused & broken shoosh
+    I tried to shove a 256x1 palette texture into the LUT-generating shaders but it caused numerous errors & the performance were slow as hell
+    So I gave up ;v;
+*/
+/*
+show_debug_message("LUT update from highres palette texture requested");
+
+// Get palette texture
+texPalette = sprite_get_texture(currentPaletteSpr, 0);
+
+// Create new temp. surface for holding the LUT data before we make it into a sprite.
+var _tmpsurf = surface_create(LUTRes, LUTRes);
+
+// 1] 1st. Closest colour
+// Write LUT into temp. surface
+surface_set_target(_tmpsurf);
+draw_clear($FF00FF); // for testing purpose; fill the blank to magenta to see if there's any seams in the LUT
+
+// Northing special, Just draw a quad with UV, starting from top left (0,0) to bottom right (1, 1)
+// We're gonna let the shader do all the fancy LUT-generating stuffs.
+shader_set(shd_gen_lut_from_texture_256);
+texture_set_stage(uLUT256Palette, texPalette);
+shader_set_uniform_f(uLUT256PalettePixelSZ, texture_get_texel_width(texPalette), texture_get_texel_height(texPalette));
+shader_set_uniform_f(uLUT256SecondColour, 0);
+shader_set_uniform_f(uLUT256SZ, LUTRes, LUTRes);
+shader_set_uniform_f(uLUT256CellNum, LUTCells);
+
+draw_primitive_begin(pr_trianglestrip);
+draw_vertex_texture(0, 0, 0, 0);
+draw_vertex_texture(LUTRes, 0, 1, 0);
+draw_vertex_texture(0, LUTRes, 0, 1);
+draw_vertex_texture(LUTRes, LUTRes, 1, 1);
+draw_primitive_end();
+shader_reset();
+
+surface_reset_target();
+
+// Overwrite / Create sprite from temp. surface to prevent GPU from
+// "accidentally" obliterating the LUT texture when the window is minimized
+if (sprite_exists(sprLUT1))
+{
+    sprite_delete(sprLUT1);
+}
+sprLUT1 = sprite_create_from_surface(_tmpsurf, 0, 0, LUTRes, LUTRes, false, false, 0, 0);
+
+// Also fetch texture pointer from the sprite for later use
+texLUT1 = sprite_get_texture(sprLUT1, 0);
+
+// 2] 2nd. Closest colour
+// Write LUT into temp. surface
+surface_set_target(_tmpsurf);
+draw_clear($FF00FF); // for testing purpose; fill the blank to magenta to see if there's any seams in the LUT
+
+// Northing special, Just draw a quad with UV, starting from top left (0,0) to bottom right (1, 1)
+// We're gonna let the shader do all the fancy LUT-generating stuffs.
+// (set shader context)
+shader_set(shd_gen_lut_from_texture_256);
+
+texture_set_stage(uLUT256Palette, texPalette);
+shader_set_uniform_f(uLUT256PalettePixelSZ, texture_get_texel_width(texPalette), texture_get_texel_height(texPalette));
+shader_set_uniform_f(uLUT256SecondColour, 1);
+shader_set_uniform_f(uLUT256SZ, LUTRes, LUTRes);
+shader_set_uniform_f(uLUT256CellNum, LUTCells);
+
+// draw primitive quad w/ uv coordinates
+draw_primitive_begin(pr_trianglestrip);
+draw_vertex_texture(0, 0, 0, 0);
+draw_vertex_texture(LUTRes, 0, 1, 0);
+draw_vertex_texture(0, LUTRes, 0, 1);
+draw_vertex_texture(LUTRes, LUTRes, 1, 1);
+draw_primitive_end();
+
+// (reset shader context)
+shader_reset();
+
+surface_reset_target();
+
+// Overwrite / Create sprite from temp. surface to prevent GPU from
+// "accidentally" obliterating the LUT texture when the window is minimized
+if (sprite_exists(sprLUT2))
+{
+    sprite_delete(sprLUT2);
+}
+sprLUT2 = sprite_create_from_surface(_tmpsurf, 0, 0, LUTRes, LUTRes, false, false, 0, 0);
+
+// Also fetch texture pointer from the sprite for later use
+texLUT2 = sprite_get_texture(sprLUT2, 0);
+
+// Delete temp. surface
+surface_free(_tmpsurf);
+
+// oh.
+var _res = string(LUTRes);
+show_debug_message("LUT updated from high-res texture, Resolution : (" + _res + ", " + _res + ")");
+*/
+
+#event other_user3 Request palette loading
+show_debug_message("User has requested external palette image loading");
+
+// Ask user for palette image
+var _imgfile = get_open_filename_ext("PNG palette image|*.png|GIF palette image|*.gif|JPEG palette image|*.jpg;*.jpeg", "", program_directory, "Select your palette image. (16 colours)");
+if (file_exists(_imgfile))
+{
+    if (currentPaletteSprLoaded && sprite_exists(currentPaletteSpr))
+    {
+        sprite_delete(currentPaletteSpr);
+    }
+    currentPaletteSpr = sprite_add(_imgfile, 0, false, false, 0, 0);
+    currentPaletteSprLoaded = true;
+    show_debug_message("Successfully loaded [" + _imgfile + "] as palette sprite, Requesting LUT baking..");
+    
+    // Request LUT update
+    event_user(1);
+}
+else
+{
+    show_debug_message("File [" + _imgfile + "] does not exist!");
+}
+
+#event other_user15 Save LUT(s)
+show_debug_message("User has requested LUT saving");
+
+// saving LUT #1...
+var _dir = get_save_filename_ext("*.png|PNG image file", "LUT_1.png", program_directory, "Saving LUT #1 as...");
+if (directory_exists(_dir))
+{
+    sprite_save(sprLUT1, 0, _dir);
+}
+else
+{
+    show_debug_message("Directory [" + string(_dir) + "] does not exist!");
+}
+
+// saving LUT #2...
+var _dir = get_save_filename_ext("*.png|PNG image file", "LUT_2.png", program_directory, "Saving LUT #2 as...");
+if (directory_exists(_dir))
+{
+    sprite_save(sprLUT2, 0, _dir);
+}
+else
+{
+    show_debug_message("Directory [" + string(_dir) + "] does not exist!");
+}
+
+#event draw Draw the scene
+
+#section Screens
+// Draw things into the source surface
+switch (global.screenState)
+{
+    case SCREEN.MAIN:
+        // Draw... things.
+        // Drawing routine have been moved to o3DDemo object, Go check it out.
+        break;
+        
+    case SCREEN.PARROTTEST:
+        // Draw test image from wikipedia
+        // Source : https://en.wikipedia.org/wiki/List_of_software_palettes
+        var _tilecol = make_color_hsv(current_time * 0.001 * 255, screenMouseY * 128, 255);
+        draw_sprite_tiled_ext(sprTest, 0, 0, 0, winWid / sprite_get_width(sprTest) * 0.5, winHei / sprite_get_height(sprTest) * 0.5, _tilecol, 1.0);
+        break;
+    
+    case SCREEN.BWTEST:
+        // Draw B/W test image
+        draw_rectangle_color(0, 0, winWid, winHei, c_white, c_white, c_black, c_black, false);
+        break;
+        
+    case SCREEN.BISQWITTEST:
+        // Draw bisqwit's test image
+        // Source : https://bisqwit.iki.fi/story/howto/dither/jy/#Appendix%203ColorComparisons
+        draw_sprite_tiled_ext(sprTest2, 0, 0, 0, winWid / sprite_get_width(sprTest2) * 0.5, winHei / sprite_get_height(sprTest2) * 0.5, c_white, 1.0);
+        break;
+}
+
+#event draw_gui Draw debug info
+draw_set_halign(1); draw_set_valign(0);
+var _str = "FPS : " + string(fps_real) + "#INTERACT WITH MOUSE | <1 ~ " + string(SCREEN.END) + "> : CHANGE THE SCREEN#<CTRL + O> : OPEN CUSTOM PALETTE | <CTRL + S> : SAVE CURRENT LUT(s)";
+var _col = $00DDFF;
+draw_text_transformed_color(winWid * 0.5, 11, _str, 1, 1, 0, 0, 0, 0, 0, 1.0);
+draw_text_transformed_color(winWid * 0.5, 10, _str, 1, 1, 0, _col, _col, _col, _col, 1.0);
+
+#event draw_begin Clear & begin source surface targeting
+surface_set_target(surfSource);
+draw_clear_alpha(0, 0);
+
+#event draw_end End screen surface targeting
+surface_reset_target();
+
+#section Draw the screen with filter
+switch (global.screenState)
+{
+    case SCREEN.LUT:
+        // Draw nothing but LUT
+        if (sprite_exists(sprLUT1) && sprite_exists(sprLUT2))
+        {
+            var _off = current_time * 0.01;
+            var _col = make_color_hsv(current_time * 0.001 * 255, 128, 128);
+            draw_sprite_tiled_ext(texChecker, 1, _off, _off, 128, 128, _col, 1.0);
+            
+            if (screenMouseDown)
+            {
+                // Draw 2 LUTs overlaid on top of eachother
+                var _minsize = min(winWid, winHei);
+                var _lutsize = _minsize;
+                var _centerx = winWid * 0.5;
+                var _centery = winHei * 0.5;
+                var _lutx = _centerx - _lutsize * 0.5;
+                var _luty = _centery - _lutsize * 0.5;
+                
+                draw_sprite_stretched(sprLUT1, 0, _lutx, _luty, _lutsize, _lutsize);
+                draw_sprite_stretched_ext(sprLUT2, 0, _lutx, _luty, _lutsize, _lutsize, c_white, screenMouseY);
+            }
+            else
+            {
+                // Draw 2 LUTs separetely
+                var _minsize = min(winWid, winHei);
+                var _lutsize = _minsize * 0.5;
+                var _centerx = winWid * 0.5;
+                var _centery = winHei * 0.5;
+                var _luty = _centery - _lutsize * 0.5;
+                var _lut1x = _centerx - _centerx * 0.5 - _lutsize * 0.5;
+                var _lut2x = _centerx + _centerx * 0.5 - _lutsize * 0.5;
+                
+                draw_sprite_stretched(sprLUT1, 0, _lut1x, _luty, _lutsize, _lutsize);
+                draw_sprite_stretched(sprLUT2, 0, _lut2x, _luty, _lutsize, _lutsize);
+                
+                // Draw captions
+                var _captiony = _luty - 4;
+                draw_set_halign(0); draw_set_valign(2);
+                draw_text(_lut1x, _captiony, "LUT \#1 : Closest colour");
+                draw_text(_lut2x, _captiony, "LUT \#2 : 2nd. closest colour");
+                
+                draw_set_halign(1); draw_set_valign(1);
+                _captiony = _luty * 0.5;
+                draw_text(_centerx, _captiony, "Hold left mouse button to view 2 LUTs overlaid.#Move mouse up & down to adjust transparency of 2nd LUT");
+            }
+        }
+        else
+        {
+            draw_set_halign(1); draw_set_valign(1);
+            draw_text(winWid * 0.5, winHei * 0.5, "ERROR : goddammit the sprite is goner wtf");
+        }
+        break;
+    
+    default:
+        // Apply downscaling to source surface and store it into the screen surface
+        texture_set_interpolation(true);
+        surface_set_target(surfScreen);
+        draw_clear_alpha(0, 0);
+        draw_surface_stretched(surfSource, 0, 0, screenWid, screenHei);
+        surface_reset_target();
+        texture_set_interpolation(false);
+    
+        // Apply quantization & dithering effect to the downscaled surface
+        var _screenw = surface_get_width(surfScreen);
+        var _screenh = surface_get_height(surfScreen);
+        var _lutresoultion = LUTRes;
+        var _lutcells = LUTCells;
+        zlut_set_dithering_shader(_screenw, _screenh, _lutresoultion, _lutcells, texThreshold, texLUT1, texLUT2);
+        draw_surface_stretched(surfScreen, 0, 0, winWid, winHei);
+        shader_reset();
+        
+        // Draw part of surface without dithering, Separated by mouse's x position
+        var _wid = surface_get_width(surfSource);
+        var _hei = surface_get_height(surfSource);
+        var _screendivx = _wid * screenMouseX;
+        var _xs = winWid / _wid;
+        var _ys = winHei / _hei;
+        draw_surface_part_ext(surfSource, 0, 0, _screendivx, _hei, 0, 0, _xs, _ys, c_white, 1.0);
+        
+        // Draw divider
+        var _divwid = 4;
+        var _divx = (winWid * screenMouseX) - _divwid * 0.5;
+        draw_sprite_stretched(texChecker, 0, _divx, 0, _divwid, winHei);
+        break;
+}
